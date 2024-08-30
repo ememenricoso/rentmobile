@@ -1,0 +1,4 @@
+{
+    "cmake.ignoreCMakeListsMissing": true,
+    "jdk.java.onSave.organizeImports": true
+}

@@ -1,0 +1,29 @@
+buildscript {
+    ext {
+        flutterRoot = 'C:\\flutter\\flutter'
+        kotlin_version = '1.7.0'
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath "com.android.tools.build:gradle:7.2.1"
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+        // Add the Flutter Gradle plugin here
+    }
+}
+apply from: "$flutterRoot/packages/flutter_tools/gradle/flutter.gradle"
+
+rootProject.buildDir = "../build"
+
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+}
+subprojects {
+    project.evaluationDependsOn(":app")
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}
