@@ -43,8 +43,8 @@ class _TimelineScreenState extends State<TimelineScreen> {
       setState(() {
         final timeline = List<Map<String, dynamic>>.from(userDoc['timeline'] ?? []);
         for (var i = 0; i < timeline.length; i++) {
-          if (timeline[i]['status'] == 'Additional Info Requested' ||
-              timeline[i]['status'] == 'Additional Info Submitted') {
+          if (timeline[i]['status'] == 'Request Info' ||
+              timeline[i]['status'] == 'Request Info') {
             _submissionStatus['issubmitted${i + 1}'] = timeline[i]['issubmitted${i + 1}'] ?? false;
             _selectedFiles[i + 1] = []; // Initialize empty file list for each request
           }
@@ -223,15 +223,16 @@ class _TimelineScreenState extends State<TimelineScreen> {
 
   List<Widget> _buildAdditionalInfoSteps(List<Map<String, dynamic>> timeline) {
     List<Widget> steps = [];
+  
 
     for (var i = 0; i < timeline.length; i++) {
       final entry = timeline[i];
-      if (entry['status'] == 'Additional Info Requested' || entry['status'] == 'Additional Info Submitted') {
+      if (entry['status'] == 'Request Info' || entry['status'] == 'Additional Info Submitted') {
         bool isSubmitted = entry['issubmitted${i + 1}'] ?? false;
         steps.add(
           _buildTimelineStep(
             context,
-            status: 'Additional Info Requested - ${i + 1}',
+            status: 'Request Info - ${i + 1}',
             isCompleted: isSubmitted,
             isCurrent: !isSubmitted,
             child: _buildAdditionalInfoSection(timeline, i + 1), // Pass index + 1 as requestIndex
