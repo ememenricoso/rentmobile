@@ -264,7 +264,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
               if (status != 'Approved')
                 Container(
                   width: 2,
-                  height: 20,
+                  height: 50,
                   color: isCompleted ? Colors.green : Colors.grey,
                 ),
             ],
