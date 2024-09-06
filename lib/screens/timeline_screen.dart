@@ -21,6 +21,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
   Map<int, List<XFile>> _selectedFiles = {}; // Map to track selected files per request
   String? _uploadErrorMessage;
   Map<String, bool> _submissionStatus = {};
+  Map<String, String> _declineReasons = {}; // Map to store decline reasons by userId
 
   @override
   void initState() {
@@ -29,8 +30,26 @@ class _TimelineScreenState extends State<TimelineScreen> {
         .collection('users')
         .doc(widget.userId)
         .snapshots();
-
     _loadSubmissionStatus();
+    _fetchDeclineReasons();
+  }
+
+  Future<void> _fetchDeclineReasons() async {
+    // Query all users with status 'Declined'
+    final querySnapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .where('status', isEqualTo: 'Declined')
+        .get();
+
+    final Map<String, String> reasons = {};
+    for (var doc in querySnapshot.docs) {
+      var data = doc.data();
+      reasons[doc.id] = data['decline_reason'] ?? '';
+    }
+
+    setState(() {
+      _declineReasons = reasons;
+    });
   }
 
   Future<void> _loadSubmissionStatus() async {
@@ -40,28 +59,26 @@ class _TimelineScreenState extends State<TimelineScreen> {
         .get();
 
     if (userDoc.exists) {
-      setState(() {
-        final timeline = List<Map<String, dynamic>>.from(userDoc['timeline'] ?? []);
-        for (var i = 0; i < timeline.length; i++) {
-          if (timeline[i]['status'] == 'Request Info' ||
-              timeline[i]['status'] == 'Request Info') {
-            _submissionStatus['issubmitted${i + 1}'] = timeline[i]['issubmitted${i + 1}'] ?? false;
-            _selectedFiles[i + 1] = []; // Initialize empty file list for each request
-          }
+      final timeline = List<Map<String, dynamic>>.from(userDoc['timeline'] ?? []);
+      for (var i = 0; i < timeline.length; i++) {
+        if (timeline[i]['status'] == 'Request Info' ||
+            timeline[i]['status'] == 'Additional Info Submitted') {
+          _submissionStatus['issubmitted${i + 1}'] = timeline[i]['issubmitted${i + 1}'] ?? false;
+          _selectedFiles[i + 1] = []; // Initialize empty file list for each request
         }
-      });
+      }
     }
   }
 
- Future<void> _submitAdditionalInfo(String additionalInfo, int requestIndex) async {
-  if (_selectedFiles[requestIndex] == null || _selectedFiles[requestIndex]!.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Please select files to upload')),
-    );
-    return;
-  }
+  Future<void> _submitAdditionalInfo(String additionalInfo, int requestIndex) async {
+    if (_selectedFiles[requestIndex] == null || _selectedFiles[requestIndex]!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select files to upload')),
+      );
+      return;
+    }
 
-  List<String> uploadedFileNames = [];
+     List<String> uploadedFileUrls = [];
   try {
     for (var file in _selectedFiles[requestIndex]!) {
       String fileName = file.name;
@@ -72,48 +89,47 @@ class _TimelineScreenState extends State<TimelineScreen> {
         var ref = firebase_storage.FirebaseStorage.instance.ref().child(filePath);
         var uploadTask = await ref.putData(bytes);
         var downloadUrl = await uploadTask.ref.getDownloadURL();
-        uploadedFileNames.add(fileName); // Store only the file name
+        uploadedFileUrls.add(downloadUrl); // Store only the file name
       } else {
         io.File fileToUpload = io.File(file.path);
         var uploadTask = await firebase_storage.FirebaseStorage.instance.ref(filePath).putFile(fileToUpload);
         String downloadUrl = await uploadTask.ref.getDownloadURL();
-        uploadedFileNames.add(fileName); // Store only the file name
+        uploadedFileUrls.add(downloadUrl); // Store only the file name
       }
     }
 
-    final docRef = FirebaseFirestore.instance.collection('users').doc(widget.userId);
-    final userDoc = await docRef.get();
-    final timeline = List<Map<String, dynamic>>.from(userDoc['timeline'] ?? []);
-    final now = Timestamp.now();
 
-    if (timeline.length > requestIndex - 1) {
-      timeline[requestIndex - 1]['status'] = 'Additional Info Submitted';
-      timeline[requestIndex - 1]['timestamp'] = now;
-      timeline[requestIndex - 1]['issubmitted${requestIndex}'] = true;
-      timeline[requestIndex - 1]['uploadedFiles'] = uploadedFileNames; // Store only file names
+      final docRef = FirebaseFirestore.instance.collection('users').doc(widget.userId);
+      final userDoc = await docRef.get();
+      final timeline = List<Map<String, dynamic>>.from(userDoc['timeline'] ?? []);
+      final now = Timestamp.now();
+
+      if (timeline.length > requestIndex - 1) {
+        timeline[requestIndex - 1]['status'] = 'Additional Info Submitted';
+        timeline[requestIndex - 1]['timestamp'] = now;
+        timeline[requestIndex - 1]['issubmitted${requestIndex}'] = true; // Ensure correct index
+        timeline[requestIndex - 1]['uploadedFiles'] = uploadedFileUrls; // Store URL
+      }
+
+      await docRef.update({'timeline': timeline});
+
+      setState(() {
+        _selectedFiles[requestIndex] = [];
+        _submissionStatus['issubmitted${requestIndex}'] = true;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Additional information submitted successfully')),
+      );
+    } catch (e) {
+      setState(() {
+        _uploadErrorMessage = e.toString();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to upload files: $_uploadErrorMessage')),
+      );
     }
-
-    await docRef.update({
-      'timeline': timeline,
-    });
-
-    setState(() {
-      _selectedFiles[requestIndex] = []; // Clear selected files after submission
-      _submissionStatus['issubmitted${requestIndex}'] = true;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Additional information submitted successfully')),
-    );
-  } catch (e) {
-    setState(() {
-      _uploadErrorMessage = e.toString();
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Failed to upload files: $_uploadErrorMessage')),
-    );
   }
-}
 
   Future<void> _pickFiles(int requestIndex) async {
     if (_submissionStatus['issubmitted${requestIndex}'] == true) return;
@@ -192,6 +208,41 @@ class _TimelineScreenState extends State<TimelineScreen> {
                     isCompleted: currentStatus == 'Approved',
                     isCurrent: currentStatus == 'Approved',
                   ),
+                  // Check if the status is Declined
+                  if (currentStatus == 'Declined') // Assuming currentStatus holds the vendor status
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 20),
+                      const Text(
+                        'Declined',
+                        style: TextStyle(
+                          color: Colors.red,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      const Text(
+                        'IM SORRY YOUR APPLICATION HAS BEEN DECLINED!!!',
+                        style: TextStyle(
+                          color: Colors.red,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 10),
+                      if (_declineReasons[widget.userId] != null && _declineReasons[widget.userId]!.isNotEmpty) // Only show if declineReason has a value
+                        Text(
+                          'Reason: ${_declineReasons[widget.userId]}', // Display the decline reason
+                          style: const TextStyle(
+                            color: Colors.black,
+                            fontSize: 14,
+                          ),
+                        ),
+                    ],
+                  ),
                   if (currentStatus == 'Approved')
                     Column(
                       children: [
@@ -221,28 +272,29 @@ class _TimelineScreenState extends State<TimelineScreen> {
     );
   }
 
-  List<Widget> _buildAdditionalInfoSteps(List<Map<String, dynamic>> timeline) {
-    List<Widget> steps = [];
-  
 
-    for (var i = 0; i < timeline.length; i++) {
-      final entry = timeline[i];
-      if (entry['status'] == 'Request Info' || entry['status'] == 'Additional Info Submitted') {
-        bool isSubmitted = entry['issubmitted${i + 1}'] ?? false;
-        steps.add(
-          _buildTimelineStep(
-            context,
-            status: 'Request Info - ${i + 1}',
-            isCompleted: isSubmitted,
-            isCurrent: !isSubmitted,
-            child: _buildAdditionalInfoSection(timeline, i + 1), // Pass index + 1 as requestIndex
-          ),
-        );
-      }
+List<Widget> _buildAdditionalInfoSteps(List<Map<String, dynamic>> timeline) {
+  List<Widget> steps = [];
+
+  for (var i = 0; i < timeline.length; i++) {
+    final entry = timeline[i];
+    if (entry['status'] == 'Request Info' || entry['status'] == 'Additional Info Submitted') {
+      bool isSubmitted = entry['issubmitted${i + 1}'] ?? false;
+      steps.add(
+        _buildTimelineStep(
+          context,
+          status: 'Request Info - ${i + 1}',
+          isCompleted: isSubmitted,
+          isCurrent: !isSubmitted,
+          child: _buildAdditionalInfoSection(timeline, i + 1),
+        ),
+      );
     }
-
-    return steps;
   }
+
+  return steps;
+}
+
 
   Widget _buildTimelineStep(BuildContext context,
     {required String status,
