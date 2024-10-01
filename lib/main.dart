@@ -1,6 +1,6 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'package:rentmobile/screens/home_screen.dart';
+import 'package:rentmobile/screens/signin_screen.dart';
 
 import 'firebase_options.dart';
 
@@ -33,7 +33,7 @@ class MyApp extends StatelessWidget {
         // is not restarted.
         primarySwatch: Colors.blue,
       ),
-      home: const HomeScreen(),
+      home: const SignInScreen(),
     );
   }
 }

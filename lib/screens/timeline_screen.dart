@@ -3,9 +3,12 @@ import 'dart:io' as io;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart' as firebase_storage;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:rentmobile/screens/dashboard.dart';
+import 'package:url_launcher/url_launcher.dart';
+
 
 class TimelineScreen extends StatefulWidget {
   final String userId;
@@ -79,6 +82,8 @@ class _TimelineScreenState extends State<TimelineScreen> {
     }
 
      List<String> uploadedFileUrls = [];
+     List<String> originalFileNames = []; // List to store original filenames
+
   try {
     for (var file in _selectedFiles[requestIndex]!) {
       String fileName = file.name;
@@ -90,11 +95,15 @@ class _TimelineScreenState extends State<TimelineScreen> {
         var uploadTask = await ref.putData(bytes);
         var downloadUrl = await uploadTask.ref.getDownloadURL();
         uploadedFileUrls.add(downloadUrl); // Store only the file name
+        originalFileNames.add(fileName); // Store the original filename
+
       } else {
         io.File fileToUpload = io.File(file.path);
         var uploadTask = await firebase_storage.FirebaseStorage.instance.ref(filePath).putFile(fileToUpload);
         String downloadUrl = await uploadTask.ref.getDownloadURL();
         uploadedFileUrls.add(downloadUrl); // Store only the file name
+        originalFileNames.add(fileName); // Store the original filename
+
       }
     }
 
@@ -109,6 +118,8 @@ class _TimelineScreenState extends State<TimelineScreen> {
         timeline[requestIndex - 1]['timestamp'] = now;
         timeline[requestIndex - 1]['issubmitted${requestIndex}'] = true; // Ensure correct index
         timeline[requestIndex - 1]['uploadedFiles'] = uploadedFileUrls; // Store URL
+        timeline[requestIndex - 1]['originalFileNames'] = originalFileNames; // Store original filenames
+
       }
 
       await docRef.update({'timeline': timeline});
@@ -152,9 +163,34 @@ class _TimelineScreenState extends State<TimelineScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Timeline'),
-      ),
+       appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white), // Back icon with white color
+            onPressed: () {
+              Navigator.of(context).pop(); // Navigate back to the previous screen
+            },
+          ),
+          title: const Text(""), // Empty title to avoid spacing issues
+          flexibleSpace: const Center( // Center the content
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center, // Center the text and icon
+              mainAxisSize: MainAxisSize.min, // Minimize the space taken by the Row
+              children: [
+                Icon(Icons.timelapse_sharp, color: Colors.white), // Icon next to the text
+                SizedBox(width: 8), // Space between icon and text
+                Text(
+                  "Timeline",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20, // Set text color to white
+                  ),
+                ),
+              ],
+            ),
+          ),
+          backgroundColor: const Color.fromARGB(255, 31, 232, 37), // Set background color to green
+          elevation: 1.0,
+        ),
       body: StreamBuilder<DocumentSnapshot>(
         stream: _registrationStream,
         builder: (context, snapshot) {
@@ -250,7 +286,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
                         const Text(
                           'CONGRATULATIONS YOUR APPLICATION IS APPROVED!!!',
                           style: TextStyle(
-                            color: Colors.green,
+                            color: Color.fromARGB(255, 33, 205, 38),
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                           ),
@@ -295,6 +331,21 @@ List<Widget> _buildAdditionalInfoSteps(List<Map<String, dynamic>> timeline) {
   return steps;
 }
 
+void launchEmail(String email) async {
+  final Uri emailLaunchUri = Uri(
+    scheme: 'mailto',
+    path: email,
+    query: 'subject=Your Subject&body=Your Message', // You can customize the subject and body
+  );
+
+  // Check if the device can launch the email
+  if (await canLaunch(emailLaunchUri.toString())) {
+    await launch(emailLaunchUri.toString());
+  } else {
+    throw 'Could not launch $emailLaunchUri';
+  }
+}
+
 
   Widget _buildTimelineStep(BuildContext context,
     {required String status,
@@ -311,13 +362,13 @@ List<Widget> _buildAdditionalInfoSteps(List<Map<String, dynamic>> timeline) {
             children: [
               Icon(
                 isCompleted ? Icons.check_circle : Icons.access_time,
-                color: isCompleted ? Colors.green : Colors.grey,
+                color: isCompleted ? const Color.fromARGB(255, 99, 217, 45) : Colors.grey,
               ),
               if (status != 'Approved')
                 Container(
                   width: 2,
                   height: 50,
-                  color: isCompleted ? Colors.green : Colors.grey,
+                  color: isCompleted ? const Color.fromARGB(255, 76, 210, 52) : Colors.grey,
                 ),
             ],
           ),
@@ -327,7 +378,7 @@ List<Widget> _buildAdditionalInfoSteps(List<Map<String, dynamic>> timeline) {
               status,
               style: TextStyle(
                 fontWeight: FontWeight.bold,
-                color: isCurrent ? Colors.blue : Colors.black,
+                color: isCurrent ?  Colors.black : Colors.black,
               ),
             ),
           ),
@@ -341,20 +392,83 @@ List<Widget> _buildAdditionalInfoSteps(List<Map<String, dynamic>> timeline) {
 Widget _buildAdditionalInfoSection(List<Map<String, dynamic>> timeline, int requestIndex) {
   final additionalInfoRequest = timeline[requestIndex - 1];
   String message = additionalInfoRequest['message'] ?? 'Please provide the requested information.';
-  List<String>? uploadedFiles = List<String>.from(additionalInfoRequest['uploadedFiles'] ?? []);
+  List<String>? originalFileNames = List<String>.from(additionalInfoRequest['originalFileNames'] ?? []); // Get original filenames
   bool isSubmitted = additionalInfoRequest['issubmitted${requestIndex}'] ?? false;
+
+  // Extract requested_by and timestamp
+  String requestedBy = additionalInfoRequest['requested_by'] ?? 'Unknown';
+  DateTime timestamp = (additionalInfoRequest['timestamp'] as Timestamp).toDate();
+  String formattedTimestamp = '${timestamp.day}/${timestamp.month}/${timestamp.year} ${timestamp.hour}:${timestamp.minute}';
+
 
   return Padding(
     padding: const EdgeInsets.only(left: 30.0), // Adjust this value to match the line's position
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // NOTE: Message
-        Text(
-          'NOTE: $message',
-          style: const TextStyle(fontWeight: FontWeight.bold),
+            //message
+         RichText(
+          text: TextSpan(
+            children: [
+              const TextSpan(
+                text: 'You are requested to upload:\n ',
+              ),
+              TextSpan(
+                text: message,
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold), // Bold weight for the message
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
+      RichText(
+      text: TextSpan(
+        children: [
+          const TextSpan(
+            text: 'Requested By: ',
+            style: TextStyle(fontSize: 12), 
+          ),
+          TextSpan(
+            text: requestedBy,
+            style: const TextStyle(
+              color: Colors.blue, // Set the color to blue
+              fontWeight: FontWeight.normal,
+              fontSize: 12,
+              decoration: TextDecoration.underline, // Underline the text
+            ),
+            recognizer: TapGestureRecognizer()..onTap = () {
+              // This code will execute when the email is tapped
+              launchEmail(requestedBy); // Call a method to launch the email client
+            },
+          ),
+        ],
+      ),
+    ),
+
+        // Date Requested (Bold the label)
+        RichText(
+          text: TextSpan(
+            children: [
+              const TextSpan(
+                text: 'Date Requested: ',
+                style: TextStyle(fontSize: 12), // Bold the label
+              ),
+              TextSpan(
+                text: formattedTimestamp, // Keep the value normal
+                style: const TextStyle(fontWeight: FontWeight.normal, fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12), 
+
+         // Optionally display orig filename
+        if (originalFileNames.isNotEmpty)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: originalFileNames.map((fileName) => Text('File Uploaded: $fileName')).toList(),
+          ),
+        const SizedBox(height: 5), 
         // Selected Files
         if (_selectedFiles[requestIndex] != null && _selectedFiles[requestIndex]!.isNotEmpty)
           Column(
@@ -386,7 +500,7 @@ Widget _buildAdditionalInfoSection(List<Map<String, dynamic>> timeline, int requ
             ],
           ),
         const SizedBox(height: 10),
-        // Uploaded Files
+/*         // Uploaded Files
         if (uploadedFiles.isNotEmpty)
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -396,7 +510,7 @@ Widget _buildAdditionalInfoSection(List<Map<String, dynamic>> timeline, int requ
                       style: const TextStyle(fontSize: 12, color: Colors.blue),
                     ))
                 .toList(),
-          ),
+          ), */
         const SizedBox(height: 10),
         // Upload Files Button
         GestureDetector(
@@ -410,26 +524,36 @@ Widget _buildAdditionalInfoSection(List<Map<String, dynamic>> timeline, int requ
           ),
         ),
         const SizedBox(height: 10),
-        // Submit Button
-        ElevatedButton(
-          onPressed: isSubmitted
-              ? null
-              : () {
-                  if (_selectedFiles[requestIndex] == null || _selectedFiles[requestIndex]!.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Please select files to upload')),
-                    );
-                    return;
-                  }
-                  _submitAdditionalInfo(message, requestIndex);
-                },
-          child: const Text('Submit'),
-        ),
-      ],
-    ),
-  );
-}
-
+    // Submit Button
+    ElevatedButton(
+      onPressed: isSubmitted
+          ? null
+          : () {
+              if (_selectedFiles[requestIndex] == null || _selectedFiles[requestIndex]!.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please select files to upload')),
+                );
+                return;
+              }
+              _submitAdditionalInfo(message, requestIndex);
+            },
+          style: ElevatedButton.styleFrom(
+              backgroundColor: const Color.fromARGB(255, 94, 212, 34), // Set the button color to green
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8.0), // Adjust this value for slight rounding
+              ),
+            ),
+              child: const Text(
+                'Submit',
+                style: TextStyle(
+                  color: Colors.white, // Set text color to white
+                )
+              )
+            )
+          ]
+        )
+      );
+    }
 
    void _goToDashboard() {
     Navigator.push(
